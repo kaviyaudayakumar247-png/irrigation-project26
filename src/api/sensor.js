@@ -1,0 +1,43 @@
+import { createClient } from "@supabase/supabase-js";
+
+const supabase = createClient(
+    process.env.https://hoirvpryemdhqsxomlnu.supabase.co,
+    process.env.sb_secret_Ca9zntEFLazDzpHDaz_3uw_toPKCW9W_SERVICE_ROLE_KEY
+);
+
+export default async function handler(req, res) {
+    if (req.method !== "POST") {
+        return res.status(405).json({
+            error: "Method not allowed"
+        });
+    }
+
+    try {
+        const { temperature, humidity, soilMoisture } = req.body;
+
+        const { data, error } = await supabase
+            .from("sensor_readings")
+            .insert({
+                temperature: Number(temperature),
+                humidity: Number(humidity),
+                soil_moisture: Number(soilMoisture),
+                pump_status: false
+            })
+            .select();
+
+        if (error) {
+            return res.status(500).json({
+                error: error.message
+            });
+        }
+
+        return res.status(200).json({
+            success: true,
+            data
+        });
+    } catch (error) {
+        return res.status(500).json({
+            error: error.message
+        });
+    }
+}
