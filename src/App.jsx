@@ -4,44 +4,53 @@ import "./App.css";
 
 function App() {
   const [sensor, setSensor] = useState(null);
+  const [pumpStatus, setPumpStatus] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+  const [pumpError, setPumpError] = useState(null);
+  const [pumpLoading, setPumpLoading] = useState(false);
   const [lastUpdated, setLastUpdated] = useState(null);
 
-  const [pumpStatus, setPumpStatus] = useState(false);
-  const [pumpLoading, setPumpLoading] = useState(false);
-  const [pumpError, setPumpError] = useState(null);
-
-  const fetchLatestSensor = async () => {
+  const fetchSensor = async () => {
     const { data, error } = await supabase
       .from("sensor_readings")
       .select("*")
       .order("created_at", { ascending: false })
       .limit(1)
-      .single();
+      .maybeSingle();
 
     if (error) {
       setError(error.message);
-      setLoading(false);
+      return;
+    }
+
+    if (!data) {
+      setSensor(null);
       return;
     }
 
     setSensor(data);
     setLastUpdated(new Date(data.created_at));
-    setLoading(false);
-    setError(null);
   };
 
-  const fetchPumpStatus = async () => {
+  const fetchPump = async () => {
     const { data, error } = await supabase
       .from("pump_control")
       .select("pump_status")
       .eq("id", 1)
-      .single();
+      .maybeSingle();
 
-    if (!error && data) {
-      setPumpStatus(Boolean(data.pump_status));
+    if (error) {
+      setPumpError(error.message);
+      return;
     }
+
+    if (!data) {
+      setPumpStatus(false);
+      return;
+    }
+
+    setPumpStatus(Boolean(data.pump_status));
   };
 
   const togglePump = async () => {
@@ -69,8 +78,7 @@ function App() {
         result = JSON.parse(text);
       } catch {
         throw new Error(
-          `Server returned ${response.status}: ${text || "Empty response"
-          }`
+          `Server returned ${response.status}: ${text || "Empty response"}`
         );
       }
 
@@ -89,11 +97,19 @@ function App() {
   };
 
   useEffect(() => {
-    fetchLatestSensor();
-    fetchPumpStatus();
+    const loadData = async () => {
+      await Promise.all([
+        fetchSensor(),
+        fetchPump()
+      ]);
+
+      setLoading(false);
+    };
+
+    loadData();
 
     const sensorChannel = supabase
-      .channel("sensor-readings")
+      .channel("sensor-updates")
       .on(
         "postgres_changes",
         {
@@ -103,13 +119,18 @@ function App() {
         },
         payload => {
           setSensor(payload.new);
-          setLastUpdated(new Date(payload.new.created_at));
+
+          if (payload.new.created_at) {
+            setLastUpdated(
+              new Date(payload.new.created_at)
+            );
+          }
         }
       )
       .subscribe();
 
     const pumpChannel = supabase
-      .channel("pump-control")
+      .channel("pump-updates")
       .on(
         "postgres_changes",
         {
@@ -118,7 +139,9 @@ function App() {
           table: "pump_control"
         },
         payload => {
-          setPumpStatus(Boolean(payload.new.pump_status));
+          setPumpStatus(
+            Boolean(payload.new.pump_status)
+          );
         }
       )
       .subscribe();
@@ -128,6 +151,18 @@ function App() {
       supabase.removeChannel(pumpChannel);
     };
   }, []);
+
+  const soilMoisture = sensor
+    ? Number(sensor.soil_moisture) || 0
+    : 0;
+
+  const temperature = sensor
+    ? Number(sensor.temperature) || 0
+    : 0;
+
+  const humidity = sensor
+    ? Number(sensor.humidity) || 0
+    : 0;
 
   const getSoilStatus = value => {
     if (value < 30) return "Dry";
@@ -174,18 +209,18 @@ function App() {
         <>
           <section className="hero">
             <div>
-              <p className="label">CURRENT SOIL CONDITION</p>
+              <p className="label">
+                CURRENT SOIL CONDITION
+              </p>
 
               <h2>
-                {getSoilStatus(
-                  Number(sensor.soil_moisture)
-                )}
+                {getSoilStatus(soilMoisture)}
               </h2>
 
               <p>
                 Your soil currently has{" "}
                 <strong>
-                  {Number(sensor.soil_moisture).toFixed(0)}%
+                  {soilMoisture.toFixed(0)}%
                 </strong>{" "}
                 moisture.
               </p>
@@ -193,7 +228,7 @@ function App() {
 
             <div className="soil-circle">
               <span>
-                {Number(sensor.soil_moisture).toFixed(0)}%
+                {soilMoisture.toFixed(0)}%
               </span>
 
               <small>Moisture</small>
@@ -202,41 +237,44 @@ function App() {
 
           <section className="cards">
             <div className="card">
-              <div className="card-icon">🌡️</div>
+              <div className="card-icon">
+                🌡️
+              </div>
 
               <div>
                 <p>Temperature</p>
-
                 <h3>
-                  {Number(sensor.temperature).toFixed(1)}°C
+                  {temperature.toFixed(1)}°C
                 </h3>
               </div>
             </div>
 
             <div className="card">
-              <div className="card-icon">💧</div>
+              <div className="card-icon">
+                💧
+              </div>
 
               <div>
                 <p>Humidity</p>
-
                 <h3>
-                  {Number(sensor.humidity).toFixed(1)}%
+                  {humidity.toFixed(1)}%
                 </h3>
               </div>
             </div>
 
             <div
               className={`card ${getSoilClass(
-                Number(sensor.soil_moisture)
+                soilMoisture
               )}`}
             >
-              <div className="card-icon">🌱</div>
+              <div className="card-icon">
+                🌱
+              </div>
 
               <div>
                 <p>Soil Moisture</p>
-
                 <h3>
-                  {Number(sensor.soil_moisture).toFixed(0)}%
+                  {soilMoisture.toFixed(0)}%
                 </h3>
               </div>
             </div>
@@ -246,18 +284,19 @@ function App() {
             <div className="panel">
               <div className="panel-header">
                 <div>
-                  <p className="label">SOIL MOISTURE</p>
+                  <p className="label">
+                    SOIL MOISTURE
+                  </p>
+
                   <h3>Moisture Level</h3>
                 </div>
 
                 <span
                   className={`status ${getSoilClass(
-                    Number(sensor.soil_moisture)
+                    soilMoisture
                   )}`}
                 >
-                  {getSoilStatus(
-                    Number(sensor.soil_moisture)
-                  )}
+                  {getSoilStatus(soilMoisture)}
                 </span>
               </div>
 
@@ -269,7 +308,7 @@ function App() {
                       100,
                       Math.max(
                         0,
-                        Number(sensor.soil_moisture)
+                        soilMoisture
                       )
                     )}%`
                   }}
@@ -280,7 +319,7 @@ function App() {
                 <span>0%</span>
 
                 <strong>
-                  {Number(sensor.soil_moisture).toFixed(0)}%
+                  {soilMoisture.toFixed(0)}%
                 </strong>
 
                 <span>100%</span>
@@ -298,15 +337,21 @@ function App() {
                 </div>
 
                 <span
-                  className={`status ${pumpStatus ? "good" : "warning"
+                  className={`status ${pumpStatus
+                      ? "good"
+                      : "warning"
                     }`}
                 >
-                  {pumpStatus ? "Running" : "Off"}
+                  {pumpStatus
+                    ? "Running"
+                    : "Off"}
                 </span>
               </div>
 
               <div className="pump-status">
-                <div className="pump-icon">💦</div>
+                <div className="pump-icon">
+                  💦
+                </div>
 
                 <div>
                   <h3>
@@ -324,7 +369,9 @@ function App() {
               </div>
 
               <button
-                className={`pump-button ${pumpStatus ? "pump-on" : "pump-off"
+                className={`pump-button ${pumpStatus
+                    ? "pump-on"
+                    : "pump-off"
                   }`}
                 onClick={togglePump}
                 disabled={pumpLoading}
@@ -346,7 +393,9 @@ function App() {
 
           <section className="info">
             <div>
-              <span>Last sensor update</span>
+              <span>
+                Last sensor update
+              </span>
 
               <strong>
                 {lastUpdated
@@ -359,7 +408,7 @@ function App() {
               <span>Soil reading</span>
 
               <strong>
-                {Number(sensor.soil_moisture).toFixed(0)}%
+                {soilMoisture.toFixed(0)}%
               </strong>
             </div>
 
@@ -367,7 +416,7 @@ function App() {
               <span>Temperature</span>
 
               <strong>
-                {Number(sensor.temperature).toFixed(1)}°C
+                {temperature.toFixed(1)}°C
               </strong>
             </div>
 
@@ -375,7 +424,7 @@ function App() {
               <span>Humidity</span>
 
               <strong>
-                {Number(sensor.humidity).toFixed(1)}%
+                {humidity.toFixed(1)}%
               </strong>
             </div>
           </section>
@@ -385,14 +434,17 @@ function App() {
       {!sensor && !error && (
         <div className="empty">
           <h2>No sensor data</h2>
+
           <p>
-            Waiting for the ESP32 to send sensor readings.
+            Waiting for the ESP32 to send
+            sensor readings.
           </p>
         </div>
       )}
 
       <footer>
-        Smart Irrigation System · ESP32 + Supabase + React
+        Smart Irrigation System · ESP32 +
+        Supabase + React
       </footer>
     </div>
   );
