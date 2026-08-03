@@ -7,6 +7,7 @@ function App() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [lastUpdated, setLastUpdated] = useState(null);
+
   const [pumpStatus, setPumpStatus] = useState(false);
   const [pumpLoading, setPumpLoading] = useState(false);
   const [pumpError, setPumpError] = useState(null);
@@ -26,10 +27,21 @@ function App() {
     }
 
     setSensor(data);
-    setPumpStatus(Boolean(data.pump_status));
     setLastUpdated(new Date(data.created_at));
     setLoading(false);
     setError(null);
+  };
+
+  const fetchPumpStatus = async () => {
+    const { data, error } = await supabase
+      .from("pump_control")
+      .select("pump_status")
+      .eq("id", 1)
+      .single();
+
+    if (!error && data) {
+      setPumpStatus(Boolean(data.pump_status));
+    }
   };
 
   const togglePump = async () => {
@@ -49,13 +61,26 @@ function App() {
         })
       });
 
-      const result = await response.json();
+      const text = await response.text();
 
-      if (!response.ok) {
-        throw new Error(result.error || "Failed to control pump");
+      let result;
+
+      try {
+        result = JSON.parse(text);
+      } catch {
+        throw new Error(
+          `Server returned ${response.status}: ${text || "Empty response"
+          }`
+        );
       }
 
-      setPumpStatus(result.pump_status);
+      if (!response.ok) {
+        throw new Error(
+          result.error || "Failed to control pump"
+        );
+      }
+
+      setPumpStatus(Boolean(result.pump_status));
     } catch (error) {
       setPumpError(error.message);
     } finally {
@@ -65,6 +90,7 @@ function App() {
 
   useEffect(() => {
     fetchLatestSensor();
+    fetchPumpStatus();
 
     const sensorChannel = supabase
       .channel("sensor-readings")
@@ -149,16 +175,27 @@ function App() {
           <section className="hero">
             <div>
               <p className="label">CURRENT SOIL CONDITION</p>
-              <h2>{getSoilStatus(Number(sensor.soil_moisture))}</h2>
+
+              <h2>
+                {getSoilStatus(
+                  Number(sensor.soil_moisture)
+                )}
+              </h2>
+
               <p>
                 Your soil currently has{" "}
-                <strong>{Number(sensor.soil_moisture).toFixed(0)}%</strong>{" "}
+                <strong>
+                  {Number(sensor.soil_moisture).toFixed(0)}%
+                </strong>{" "}
                 moisture.
               </p>
             </div>
 
             <div className="soil-circle">
-              <span>{Number(sensor.soil_moisture).toFixed(0)}%</span>
+              <span>
+                {Number(sensor.soil_moisture).toFixed(0)}%
+              </span>
+
               <small>Moisture</small>
             </div>
           </section>
@@ -166,17 +203,25 @@ function App() {
           <section className="cards">
             <div className="card">
               <div className="card-icon">🌡️</div>
+
               <div>
                 <p>Temperature</p>
-                <h3>{Number(sensor.temperature).toFixed(1)}°C</h3>
+
+                <h3>
+                  {Number(sensor.temperature).toFixed(1)}°C
+                </h3>
               </div>
             </div>
 
             <div className="card">
               <div className="card-icon">💧</div>
+
               <div>
                 <p>Humidity</p>
-                <h3>{Number(sensor.humidity).toFixed(1)}%</h3>
+
+                <h3>
+                  {Number(sensor.humidity).toFixed(1)}%
+                </h3>
               </div>
             </div>
 
@@ -186,9 +231,13 @@ function App() {
               )}`}
             >
               <div className="card-icon">🌱</div>
+
               <div>
                 <p>Soil Moisture</p>
-                <h3>{Number(sensor.soil_moisture).toFixed(0)}%</h3>
+
+                <h3>
+                  {Number(sensor.soil_moisture).toFixed(0)}%
+                </h3>
               </div>
             </div>
           </section>
@@ -206,7 +255,9 @@ function App() {
                     Number(sensor.soil_moisture)
                   )}`}
                 >
-                  {getSoilStatus(Number(sensor.soil_moisture))}
+                  {getSoilStatus(
+                    Number(sensor.soil_moisture)
+                  )}
                 </span>
               </div>
 
@@ -216,7 +267,10 @@ function App() {
                   style={{
                     width: `${Math.min(
                       100,
-                      Math.max(0, Number(sensor.soil_moisture))
+                      Math.max(
+                        0,
+                        Number(sensor.soil_moisture)
+                      )
                     )}%`
                   }}
                 ></div>
@@ -224,9 +278,11 @@ function App() {
 
               <div className="progress-values">
                 <span>0%</span>
+
                 <strong>
                   {Number(sensor.soil_moisture).toFixed(0)}%
                 </strong>
+
                 <span>100%</span>
               </div>
             </div>
@@ -234,7 +290,10 @@ function App() {
             <div className="panel">
               <div className="panel-header">
                 <div>
-                  <p className="label">IRRIGATION CONTROL</p>
+                  <p className="label">
+                    IRRIGATION CONTROL
+                  </p>
+
                   <h3>Water Pump</h3>
                 </div>
 
@@ -251,7 +310,9 @@ function App() {
 
                 <div>
                   <h3>
-                    {pumpStatus ? "Pump ON" : "Pump OFF"}
+                    {pumpStatus
+                      ? "Pump ON"
+                      : "Pump OFF"}
                   </h3>
 
                   <p>
@@ -286,6 +347,7 @@ function App() {
           <section className="info">
             <div>
               <span>Last sensor update</span>
+
               <strong>
                 {lastUpdated
                   ? lastUpdated.toLocaleTimeString()
@@ -295,6 +357,7 @@ function App() {
 
             <div>
               <span>Soil reading</span>
+
               <strong>
                 {Number(sensor.soil_moisture).toFixed(0)}%
               </strong>
@@ -302,6 +365,7 @@ function App() {
 
             <div>
               <span>Temperature</span>
+
               <strong>
                 {Number(sensor.temperature).toFixed(1)}°C
               </strong>
@@ -309,6 +373,7 @@ function App() {
 
             <div>
               <span>Humidity</span>
+
               <strong>
                 {Number(sensor.humidity).toFixed(1)}%
               </strong>
@@ -320,7 +385,9 @@ function App() {
       {!sensor && !error && (
         <div className="empty">
           <h2>No sensor data</h2>
-          <p>Waiting for the ESP32 to send sensor readings.</p>
+          <p>
+            Waiting for the ESP32 to send sensor readings.
+          </p>
         </div>
       )}
 
