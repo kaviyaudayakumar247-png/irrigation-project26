@@ -384,3 +384,44 @@ footer {
     grid-template-columns: 1fr;
   }
 }
+
+.pump-button {
+  width: 100%;
+  border: none;
+  border-radius: 12px;
+  padding: 15px;
+  margin-top: 25px;
+  font-size: 15px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: 0.2s;
+}
+
+.pump-button:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.pump-off {
+  background: #183c2f;
+  color: white;
+}
+
+.pump-on {
+  background: #c94b43;
+  color: white;
+}
+
+.pump-button:not(:disabled):hover {
+  transform: translateY(-1px);
+  opacity: 0.9;
+}
+
+.pump-error {
+  margin-top: 12px;
+  padding: 10px;
+  border-radius: 8px;
+  background: #ffe5e3;
+  color: #a52e29;
+  font-size: 13px;
+}

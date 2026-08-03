@@ -7,6 +7,9 @@ function App() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [lastUpdated, setLastUpdated] = useState(null);
+  const [pumpStatus, setPumpStatus] = useState(false);
+  const [pumpLoading, setPumpLoading] = useState(false);
+  const [pumpError, setPumpError] = useState(null);
 
   const fetchLatestSensor = async () => {
     const { data, error } = await supabase
@@ -23,15 +26,47 @@ function App() {
     }
 
     setSensor(data);
-    setLastUpdated(new Date());
+    setPumpStatus(Boolean(data.pump_status));
+    setLastUpdated(new Date(data.created_at));
     setLoading(false);
     setError(null);
+  };
+
+  const togglePump = async () => {
+    const newStatus = !pumpStatus;
+
+    setPumpLoading(true);
+    setPumpError(null);
+
+    try {
+      const response = await fetch("/api/pump", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({
+          pump_status: newStatus
+        })
+      });
+
+      const result = await response.json();
+
+      if (!response.ok) {
+        throw new Error(result.error || "Failed to control pump");
+      }
+
+      setPumpStatus(result.pump_status);
+    } catch (error) {
+      setPumpError(error.message);
+    } finally {
+      setPumpLoading(false);
+    }
   };
 
   useEffect(() => {
     fetchLatestSensor();
 
-    const channel = supabase
+    const sensorChannel = supabase
       .channel("sensor-readings")
       .on(
         "postgres_changes",
@@ -42,14 +77,29 @@ function App() {
         },
         payload => {
           setSensor(payload.new);
-          setLastUpdated(new Date());
-          setError(null);
+          setLastUpdated(new Date(payload.new.created_at));
+        }
+      )
+      .subscribe();
+
+    const pumpChannel = supabase
+      .channel("pump-control")
+      .on(
+        "postgres_changes",
+        {
+          event: "UPDATE",
+          schema: "public",
+          table: "pump_control"
+        },
+        payload => {
+          setPumpStatus(Boolean(payload.new.pump_status));
         }
       )
       .subscribe();
 
     return () => {
-      supabase.removeChannel(channel);
+      supabase.removeChannel(sensorChannel);
+      supabase.removeChannel(pumpChannel);
     };
   }, []);
 
@@ -130,7 +180,11 @@ function App() {
               </div>
             </div>
 
-            <div className={`card ${getSoilClass(Number(sensor.soil_moisture))}`}>
+            <div
+              className={`card ${getSoilClass(
+                Number(sensor.soil_moisture)
+              )}`}
+            >
               <div className="card-icon">🌱</div>
               <div>
                 <p>Soil Moisture</p>
@@ -147,7 +201,11 @@ function App() {
                   <h3>Moisture Level</h3>
                 </div>
 
-                <span className={`status ${getSoilClass(Number(sensor.soil_moisture))}`}>
+                <span
+                  className={`status ${getSoilClass(
+                    Number(sensor.soil_moisture)
+                  )}`}
+                >
                   {getSoilStatus(Number(sensor.soil_moisture))}
                 </span>
               </div>
@@ -176,28 +234,52 @@ function App() {
             <div className="panel">
               <div className="panel-header">
                 <div>
-                  <p className="label">IRRIGATION STATUS</p>
+                  <p className="label">IRRIGATION CONTROL</p>
                   <h3>Water Pump</h3>
                 </div>
+
+                <span
+                  className={`status ${pumpStatus ? "good" : "warning"
+                    }`}
+                >
+                  {pumpStatus ? "Running" : "Off"}
+                </span>
               </div>
 
               <div className="pump-status">
-                <div className="pump-icon">
-                  💦
-                </div>
+                <div className="pump-icon">💦</div>
 
                 <div>
                   <h3>
-                    {sensor.pump_status ? "Running" : "Off"}
+                    {pumpStatus ? "Pump ON" : "Pump OFF"}
                   </h3>
 
                   <p>
-                    {sensor.pump_status
-                      ? "Water is currently being supplied."
-                      : "Pump is currently inactive."}
+                    {pumpStatus
+                      ? "Water pump is currently running."
+                      : "Water pump is currently stopped."}
                   </p>
                 </div>
               </div>
+
+              <button
+                className={`pump-button ${pumpStatus ? "pump-on" : "pump-off"
+                  }`}
+                onClick={togglePump}
+                disabled={pumpLoading}
+              >
+                {pumpLoading
+                  ? "Updating..."
+                  : pumpStatus
+                    ? "Turn OFF Pump"
+                    : "Turn ON Pump"}
+              </button>
+
+              {pumpError && (
+                <div className="pump-error">
+                  {pumpError}
+                </div>
+              )}
             </div>
           </section>
 
@@ -243,7 +325,7 @@ function App() {
       )}
 
       <footer>
-        Smart Irrigation System · ESP32 + Firebase/Supabase + React
+        Smart Irrigation System · ESP32 + Supabase + React
       </footer>
     </div>
   );
