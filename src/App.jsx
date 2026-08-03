@@ -1,301 +1,250 @@
 import { useEffect, useState } from "react";
-import {
-  LineChart,
-  Line,
-  XAxis,
-  YAxis,
-  CartesianGrid,
-  Tooltip,
-  ResponsiveContainer
-} from "recharts";
+import { supabase } from "./supabase";
 import "./App.css";
 
 function App() {
-  const [data, setData] = useState({
-    temperature: 32.4,
-    humidity: 58,
-    soilMoisture: 24,
-    pump: false
-  });
+  const [sensor, setSensor] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
+  const [lastUpdated, setLastUpdated] = useState(null);
 
-  const [mode, setMode] = useState("AUTO");
+  const fetchLatestSensor = async () => {
+    const { data, error } = await supabase
+      .from("sensor_readings")
+      .select("*")
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .single();
 
-  const [history, setHistory] = useState([
-    { time: "10:00", soil: 58, temperature: 28 },
-    { time: "10:30", soil: 52, temperature: 29 },
-    { time: "11:00", soil: 45, temperature: 30 },
-    { time: "11:30", soil: 38, temperature: 31 },
-    { time: "12:00", soil: 31, temperature: 32 },
-    { time: "12:30", soil: 24, temperature: 32 }
-  ]);
+    if (error) {
+      setError(error.message);
+      setLoading(false);
+      return;
+    }
 
-  const [ai, setAi] = useState({
-    decision: "IRRIGATION REQUIRED",
-    reason: "Soil moisture is low and temperature is high.",
-    duration: 30,
-    confidence: 94
-  });
+    setSensor(data);
+    setLastUpdated(new Date());
+    setLoading(false);
+    setError(null);
+  };
 
   useEffect(() => {
-    const interval = setInterval(() => {
-      setData(prev => ({
-        ...prev,
-        temperature: +(prev.temperature + (Math.random() - 0.5) * 0.4).toFixed(1),
-        humidity: Math.max(
-          0,
-          Math.min(100, +(prev.humidity + (Math.random() - 0.5) * 1).toFixed(1))
-        ),
-        soilMoisture: Math.max(
-          0,
-          Math.min(100, +(prev.soilMoisture + (Math.random() - 0.5) * 2).toFixed(1))
-        )
-      }));
-    }, 3000);
+    fetchLatestSensor();
 
-    return () => clearInterval(interval);
+    const channel = supabase
+      .channel("sensor-readings")
+      .on(
+        "postgres_changes",
+        {
+          event: "INSERT",
+          schema: "public",
+          table: "sensor_readings"
+        },
+        payload => {
+          setSensor(payload.new);
+          setLastUpdated(new Date());
+          setError(null);
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
   }, []);
 
-  useEffect(() => {
-    if (data.soilMoisture < 30) {
-      setAi({
-        decision: "IRRIGATION REQUIRED",
-        reason: "Soil moisture is low.",
-        duration: 30,
-        confidence: 94
-      });
-    } else {
-      setAi({
-        decision: "IRRIGATION NOT REQUIRED",
-        reason: "Soil moisture is sufficient.",
-        duration: 0,
-        confidence: 91
-      });
-    }
-  }, [data.soilMoisture]);
-
-  const togglePump = () => {
-    if (mode === "MANUAL") {
-      setData(prev => ({
-        ...prev,
-        pump: !prev.pump
-      }));
-    }
+  const getSoilStatus = value => {
+    if (value < 30) return "Dry";
+    if (value < 60) return "Moderate";
+    return "Wet";
   };
 
-  const changeMode = modeName => {
-    setMode(modeName);
-
-    if (modeName === "AUTO") {
-      setData(prev => ({
-        ...prev,
-        pump: prev.soilMoisture < 30
-      }));
-    }
+  const getSoilClass = value => {
+    if (value < 30) return "danger";
+    if (value < 60) return "warning";
+    return "good";
   };
+
+  if (loading) {
+    return (
+      <div className="loading-screen">
+        <div className="loader"></div>
+        <p>Loading irrigation data...</p>
+      </div>
+    );
+  }
 
   return (
     <div className="app">
-      <header>
+      <header className="header">
         <div>
           <h1>Smart Irrigation</h1>
           <p>AI Powered Irrigation Monitoring System</p>
         </div>
 
         <div className="connection">
-          <span></span>
-          ESP32 ONLINE
+          <span className="online-dot"></span>
+          <span>System Online</span>
         </div>
       </header>
 
-      <main>
-        <section className="cards">
-          <SensorCard
-            title="Temperature"
-            value={data.temperature}
-            unit="°C"
-            icon="🌡️"
-          />
+      {error && (
+        <div className="error">
+          <strong>Database error:</strong> {error}
+        </div>
+      )}
 
-          <SensorCard
-            title="Humidity"
-            value={data.humidity}
-            unit="%"
-            icon="💧"
-          />
-
-          <SensorCard
-            title="Soil Moisture"
-            value={data.soilMoisture}
-            unit="%"
-            icon="🌱"
-          />
-        </section>
-
-        <section className="content-grid">
-          <div className="panel">
-            <div className="panel-header">
-              <h2>Environment History</h2>
-              <span>Live</span>
+      {sensor && (
+        <>
+          <section className="hero">
+            <div>
+              <p className="label">CURRENT SOIL CONDITION</p>
+              <h2>{getSoilStatus(Number(sensor.soil_moisture))}</h2>
+              <p>
+                Your soil currently has{" "}
+                <strong>{Number(sensor.soil_moisture).toFixed(0)}%</strong>{" "}
+                moisture.
+              </p>
             </div>
 
-            <div className="chart">
-              <ResponsiveContainer width="100%" height={300}>
-                <LineChart data={history}>
-                  <CartesianGrid strokeDasharray="3 3" />
-                  <XAxis dataKey="time" />
-                  <YAxis />
-                  <Tooltip />
-                  <Line
-                    type="monotone"
-                    dataKey="soil"
-                    name="Soil Moisture"
-                    strokeWidth={3}
-                  />
-                  <Line
-                    type="monotone"
-                    dataKey="temperature"
-                    name="Temperature"
-                    strokeWidth={3}
-                  />
-                </LineChart>
-              </ResponsiveContainer>
+            <div className="soil-circle">
+              <span>{Number(sensor.soil_moisture).toFixed(0)}%</span>
+              <small>Moisture</small>
             </div>
-          </div>
+          </section>
 
-          <div className="panel ai-panel">
-            <div className="panel-header">
-              <h2>AI Decision</h2>
-              <span>AI</span>
-            </div>
-
-            <div className="ai-status">
-              <div className="ai-icon">🤖</div>
-
-              <h3>{ai.decision}</h3>
-
-              <p>{ai.reason}</p>
-
-              <div className="ai-details">
-                <div>
-                  <strong>{ai.duration}s</strong>
-                  <span>Recommended Duration</span>
-                </div>
-
-                <div>
-                  <strong>{ai.confidence}%</strong>
-                  <span>Confidence</span>
-                </div>
-              </div>
-            </div>
-          </div>
-        </section>
-
-        <section className="bottom-grid">
-          <div className="panel pump-panel">
-            <div className="panel-header">
-              <h2>Water Pump</h2>
-
-              <div className={`pump-status ${data.pump ? "on" : "off"}`}>
-                <span></span>
-                {data.pump ? "ON" : "OFF"}
-              </div>
-            </div>
-
-            <div className="pump-control">
-              <div className={`pump-circle ${data.pump ? "active" : ""}`}>
-                💦
-              </div>
-
+          <section className="cards">
+            <div className="card">
+              <div className="card-icon">🌡️</div>
               <div>
-                <p>Control Mode</p>
+                <p>Temperature</p>
+                <h3>{Number(sensor.temperature).toFixed(1)}°C</h3>
+              </div>
+            </div>
 
-                <div className="mode-buttons">
-                  <button
-                    className={mode === "AUTO" ? "active-button" : ""}
-                    onClick={() => changeMode("AUTO")}
-                  >
-                    AUTO
-                  </button>
+            <div className="card">
+              <div className="card-icon">💧</div>
+              <div>
+                <p>Humidity</p>
+                <h3>{Number(sensor.humidity).toFixed(1)}%</h3>
+              </div>
+            </div>
 
-                  <button
-                    className={mode === "MANUAL" ? "active-button" : ""}
-                    onClick={() => changeMode("MANUAL")}
-                  >
-                    MANUAL
-                  </button>
+            <div className={`card ${getSoilClass(Number(sensor.soil_moisture))}`}>
+              <div className="card-icon">🌱</div>
+              <div>
+                <p>Soil Moisture</p>
+                <h3>{Number(sensor.soil_moisture).toFixed(0)}%</h3>
+              </div>
+            </div>
+          </section>
+
+          <section className="dashboard-grid">
+            <div className="panel">
+              <div className="panel-header">
+                <div>
+                  <p className="label">SOIL MOISTURE</p>
+                  <h3>Moisture Level</h3>
+                </div>
+
+                <span className={`status ${getSoilClass(Number(sensor.soil_moisture))}`}>
+                  {getSoilStatus(Number(sensor.soil_moisture))}
+                </span>
+              </div>
+
+              <div className="progress-container">
+                <div
+                  className="progress"
+                  style={{
+                    width: `${Math.min(
+                      100,
+                      Math.max(0, Number(sensor.soil_moisture))
+                    )}%`
+                  }}
+                ></div>
+              </div>
+
+              <div className="progress-values">
+                <span>0%</span>
+                <strong>
+                  {Number(sensor.soil_moisture).toFixed(0)}%
+                </strong>
+                <span>100%</span>
+              </div>
+            </div>
+
+            <div className="panel">
+              <div className="panel-header">
+                <div>
+                  <p className="label">IRRIGATION STATUS</p>
+                  <h3>Water Pump</h3>
                 </div>
               </div>
 
-              <button
-                className={`pump-button ${data.pump ? "stop" : ""}`}
-                onClick={togglePump}
-                disabled={mode === "AUTO"}
-              >
-                {data.pump ? "TURN OFF PUMP" : "TURN ON PUMP"}
-              </button>
+              <div className="pump-status">
+                <div className="pump-icon">
+                  💦
+                </div>
+
+                <div>
+                  <h3>
+                    {sensor.pump_status ? "Running" : "Off"}
+                  </h3>
+
+                  <p>
+                    {sensor.pump_status
+                      ? "Water is currently being supplied."
+                      : "Pump is currently inactive."}
+                  </p>
+                </div>
+              </div>
             </div>
-          </div>
+          </section>
 
-          <div className="panel status-panel">
-            <div className="panel-header">
-              <h2>System Status</h2>
+          <section className="info">
+            <div>
+              <span>Last sensor update</span>
+              <strong>
+                {lastUpdated
+                  ? lastUpdated.toLocaleTimeString()
+                  : "Waiting..."}
+              </strong>
             </div>
 
-            <StatusRow
-              name="ESP32"
-              status="Online"
-            />
+            <div>
+              <span>Soil reading</span>
+              <strong>
+                {Number(sensor.soil_moisture).toFixed(0)}%
+              </strong>
+            </div>
 
-            <StatusRow
-              name="DHT22"
-              status="Connected"
-            />
+            <div>
+              <span>Temperature</span>
+              <strong>
+                {Number(sensor.temperature).toFixed(1)}°C
+              </strong>
+            </div>
 
-            <StatusRow
-              name="Soil Sensor"
-              status="Connected"
-            />
+            <div>
+              <span>Humidity</span>
+              <strong>
+                {Number(sensor.humidity).toFixed(1)}%
+              </strong>
+            </div>
+          </section>
+        </>
+      )}
 
-            <StatusRow
-              name="AI Engine"
-              status="Active"
-            />
-          </div>
-        </section>
-      </main>
+      {!sensor && !error && (
+        <div className="empty">
+          <h2>No sensor data</h2>
+          <p>Waiting for the ESP32 to send sensor readings.</p>
+        </div>
+      )}
 
       <footer>
-        Smart Irrigation System • ESP32 + AI + React
+        Smart Irrigation System · ESP32 + Firebase/Supabase + React
       </footer>
-    </div>
-  );
-}
-
-function SensorCard({ title, value, unit, icon }) {
-  return (
-    <div className="sensor-card">
-      <div className="sensor-icon">{icon}</div>
-
-      <div>
-        <p>{title}</p>
-        <h2>
-          {value}
-          <small>{unit}</small>
-        </h2>
-      </div>
-    </div>
-  );
-}
-
-function StatusRow({ name, status }) {
-  return (
-    <div className="status-row">
-      <span>{name}</span>
-
-      <div>
-        <i></i>
-        {status}
-      </div>
     </div>
   );
 }
