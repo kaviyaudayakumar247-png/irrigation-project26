@@ -30,7 +30,10 @@ function App() {
     }
 
     setSensor(data);
-    setLastUpdated(new Date(data.created_at));
+
+    if (data.created_at) {
+      setLastUpdated(new Date(data.created_at));
+    }
   };
 
   const fetchPump = async () => {
@@ -60,15 +63,18 @@ function App() {
     setPumpError(null);
 
     try {
-      const response = await fetch("/api/pump", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json"
-        },
-        body: JSON.stringify({
-          pump_status: newStatus
-        })
-      });
+      const response = await fetch(
+        "https://irrigation-project26.vercel.app/api/pump",
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json"
+          },
+          body: JSON.stringify({
+            pump_status: newStatus
+          })
+        }
+      );
 
       const text = await response.text();
 
@@ -78,7 +84,8 @@ function App() {
         result = JSON.parse(text);
       } catch {
         throw new Error(
-          `Server returned ${response.status}: ${text || "Empty response"}`
+          `Server returned ${response.status}: ${text || "Empty response"
+          }`
         );
       }
 
@@ -237,9 +244,7 @@ function App() {
 
           <section className="cards">
             <div className="card">
-              <div className="card-icon">
-                🌡️
-              </div>
+              <div className="card-icon">🌡️</div>
 
               <div>
                 <p>Temperature</p>
@@ -250,9 +255,7 @@ function App() {
             </div>
 
             <div className="card">
-              <div className="card-icon">
-                💧
-              </div>
+              <div className="card-icon">💧</div>
 
               <div>
                 <p>Humidity</p>
@@ -267,9 +270,7 @@ function App() {
                 soilMoisture
               )}`}
             >
-              <div className="card-icon">
-                🌱
-              </div>
+              <div className="card-icon">🌱</div>
 
               <div>
                 <p>Soil Moisture</p>
@@ -306,10 +307,7 @@ function App() {
                   style={{
                     width: `${Math.min(
                       100,
-                      Math.max(
-                        0,
-                        soilMoisture
-                      )
+                      Math.max(0, soilMoisture)
                     )}%`
                   }}
                 ></div>
