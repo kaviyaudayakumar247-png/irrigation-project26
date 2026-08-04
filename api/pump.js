@@ -6,32 +6,25 @@ const supabase = createClient(
 );
 
 export default async function handler(req, res) {
-    res.setHeader(
-        "Access-Control-Allow-Origin",
-        "*"
-    );
+    if (req.method === "GET") {
+        const { data, error } = await supabase
+            .from("pump_control")
+            .select("pump_status")
+            .eq("id", 1)
+            .single();
 
-    res.setHeader(
-        "Access-Control-Allow-Methods",
-        "POST, OPTIONS"
-    );
+        if (error) {
+            return res.status(500).json({
+                error: error.message
+            });
+        }
 
-    res.setHeader(
-        "Access-Control-Allow-Headers",
-        "Content-Type"
-    );
-
-    if (req.method === "OPTIONS") {
-        return res.status(200).end();
-    }
-
-    if (req.method !== "POST") {
-        return res.status(405).json({
-            error: "Method not allowed"
+        return res.status(200).json({
+            pump_status: Boolean(data.pump_status)
         });
     }
 
-    try {
+    if (req.method === "POST") {
         const { pump_status } = req.body;
 
         if (typeof pump_status !== "boolean") {
@@ -47,7 +40,7 @@ export default async function handler(req, res) {
             })
             .eq("id", 1)
             .select("pump_status")
-            .maybeSingle();
+            .single();
 
         if (error) {
             return res.status(500).json({
@@ -55,19 +48,12 @@ export default async function handler(req, res) {
             });
         }
 
-        if (!data) {
-            return res.status(404).json({
-                error: "Pump control row with id 1 not found"
-            });
-        }
-
         return res.status(200).json({
-            success: true,
             pump_status: Boolean(data.pump_status)
         });
-    } catch (error) {
-        return res.status(500).json({
-            error: error.message
-        });
     }
+
+    return res.status(405).json({
+        error: "Method not allowed"
+    });
 }
